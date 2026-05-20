@@ -1,0 +1,1523 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KIP Attendance Control</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      background-color: #020617;
+      background-image: radial-gradient(circle at 2px 2px, #1e293b 1px, transparent 0);
+      background-size: 40px 40px;
+      color: #f8fafc;
+    }
+    .neon-border { box-shadow: 0 0 15px rgba(59, 130, 246, 0.5), inset 0 0 5px rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); }
+    .glow-text { text-shadow: 0 0 10px rgba(59, 130, 246, 0.8); }
+    .scanner-line { height: 2px; background: linear-gradient(90deg, transparent, #3b82f6, transparent); animation: scan 3s linear infinite; }
+    @keyframes scan { 0% { transform: translateY(-10px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateY(280px); opacity: 0; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.5); border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.8); }
+    .leaflet-container { background: #020617; }
+    input[type="range"] { accent-color: #3b82f6; }
+  </style>
+</head>
+
+<body class="min-h-screen flex flex-col items-center justify-center p-4 font-mono relative">
+
+  <!-- PUBLIC ATTENDANCE TERMINAL -->
+  <div id="landing-view" class="w-full flex flex-col items-center justify-center">
+    <div class="mb-12 text-center">
+      <div class="text-[10px] tracking-[0.3em] text-blue-400 font-bold mb-2 uppercase opacity-80">Kampung Inggris Pontianak</div>
+      <h1 class="text-4xl md:text-6xl font-black tracking-tighter glow-text uppercase italic">Attendance Terminal</h1>
+      <div id="secret-trigger" class="w-24 h-1 bg-blue-600 mx-auto mt-4 rounded-full shadow-[0_0_15px_#2563eb] cursor-pointer hover:bg-blue-400 transition-colors"></div>
+    </div>
+
+    <div class="w-full max-w-md relative">
+      <div class="absolute inset-0 bg-blue-600/5 blur-3xl rounded-full"></div>
+      <div class="relative bg-slate-900/80 backdrop-blur-xl p-8 rounded-xl neon-border overflow-hidden">
+        <div class="absolute inset-0 scanner-line pointer-events-none opacity-20"></div>
+
+        <div class="flex justify-between items-start mb-8">
+          <div>
+            <p class="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Staff Identity / GPS Access</p>
+            <p class="text-[9px] text-slate-500 uppercase tracking-widest mt-1">Check-in and check-out require location access</p>
+          </div>
+          <div class="text-[10px] text-slate-500 font-mono">ATP</div>
+        </div>
+
+        <div class="space-y-6">
+          <div class="relative group">
+            <div class="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 opacity-50"><i class="fa-solid fa-id-card"></i></div>
+            <select id="attendance-staff" class="w-full bg-slate-950/50 border border-slate-700 rounded-lg py-5 pl-12 pr-4 text-sm tracking-widest focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all uppercase text-slate-200">
+              <option value="">LOADING STAFF...</option>
+            </select>
+          </div>
+
+          <div id="attendance-status-card" class="bg-slate-950/50 border border-slate-800 rounded-lg p-4 hidden">
+            <p class="text-[9px] text-slate-500 uppercase tracking-widest font-bold">Today Status</p>
+            <div class="flex justify-between items-center mt-2">
+              <p id="attendance-status-text" class="text-blue-400 text-sm font-black uppercase tracking-widest">Not Checked In</p>
+              <button onclick="loadSelectedStaffStatus()" class="text-slate-500 hover:text-blue-400 transition"><i class="fa-solid fa-rotate"></i></button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <button onclick="handleAttendanceAction('CHECK_IN')" id="checkin-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-5 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.3)] flex items-center justify-center gap-3 uppercase tracking-tighter transition-all active:scale-[0.98]">
+              <span>Check-In</span><i class="fa-solid fa-right-to-bracket text-sm"></i>
+            </button>
+            <button onclick="handleAttendanceAction('CHECK_OUT')" id="checkout-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-5 rounded-lg shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center gap-3 uppercase tracking-tighter transition-all active:scale-[0.98]">
+              <span>Check-Out</span><i class="fa-solid fa-right-from-bracket text-sm"></i>
+            </button>
+          </div>
+
+          <button onclick="loadPublicStaff()" class="w-full bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white font-bold py-3 rounded-lg uppercase tracking-widest text-[10px] transition-all">
+            <i class="fa-solid fa-rotate"></i> Refresh Staff List
+          </button>
+        </div>
+
+        <div class="mt-8 flex justify-between items-end border-t border-slate-800 pt-4">
+          <div class="text-[8px] text-slate-500 leading-tight uppercase font-bold">Created By Jimmy<br>Stay Healthy Everyone</div>
+          <div class="text-[8px] text-slate-600 uppercase font-bold">Clean-Slate Build</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 w-full max-w-4xl">
+      <div class="bg-slate-900/50 border border-slate-800 p-4 rounded-lg">
+        <div class="text-[8px] text-slate-500 uppercase mb-1">Core Mode</div><div class="text-xl font-bold text-slate-200 tracking-tighter">Attendance</div>
+      </div>
+      <div class="bg-slate-900/50 border border-slate-800 p-4 rounded-lg">
+        <div class="text-[8px] text-slate-500 uppercase mb-1">Database</div><div class="text-xl font-bold text-slate-200 tracking-tighter">6 Sheets</div>
+      </div>
+      <div class="bg-slate-900/50 border border-slate-800 p-4 rounded-lg">
+        <div class="text-[8px] text-slate-500 uppercase mb-1">Logic</div><div class="text-xl font-bold text-emerald-500 tracking-tighter uppercase italic">1 Row / Day</div>
+      </div>
+      <div class="bg-slate-900/50 border border-slate-800 p-4 rounded-lg">
+        <div class="text-[8px] text-slate-500 uppercase mb-1">Control</div><div class="text-xl font-bold text-emerald-500 tracking-tighter">Admin Only</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="fixed top-10 right-10 p-4 rounded-lg border border-white/10 backdrop-blur-md translate-x-[200%] transition-all duration-500 z-[300]"></div>
+
+  <!-- ADMIN LOGIN MODAL -->
+  <div id="admin-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center z-[100] p-4">
+    <div class="bg-slate-900 border border-blue-500/30 p-8 rounded-2xl w-full max-w-sm neon-border">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="h-1 w-8 bg-blue-500"></div>
+        <h2 class="text-xl font-bold text-blue-400 uppercase tracking-tighter italic">Management Override</h2>
+      </div>
+      <div class="space-y-4">
+        <input type="text" id="admin-user" placeholder="USERNAME" 
+               class="w-full bg-slate-950 border border-slate-800 p-4 rounded-lg text-sm outline-none focus:border-blue-500 text-blue-100 placeholder:text-slate-700">
+
+        <div class="relative">
+          <input type="password" id="admin-pass" placeholder="PASSWORD" 
+                 class="w-full bg-slate-950 border border-slate-800 p-4 pr-12 rounded-lg text-sm outline-none focus:border-blue-500 text-blue-100 placeholder:text-slate-700">
+          <button onclick="toggleAdminPassword()" class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-blue-400 transition-colors focus:outline-none">
+            <i id="admin-pass-icon" class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button onclick="document.getElementById('admin-modal').classList.add('hidden')" class="flex-1 bg-slate-800 text-slate-400 py-4 rounded-lg font-bold text-xs uppercase hover:bg-slate-700 transition">Abort</button>
+          <button onclick="attemptAdminLogin()" id="admin-login-btn" class="flex-1 bg-blue-600 text-white py-4 rounded-lg font-bold text-xs uppercase hover:bg-blue-500 shadow-lg shadow-blue-600/20 transition">Execute</button>
+        </div>
+        <button onclick="initializeDatabase()" id="init-db-login-btn" class="w-full bg-indigo-600/20 border border-indigo-500/40 text-indigo-400 py-3 rounded-lg font-bold text-[10px] uppercase hover:bg-indigo-600 hover:text-white transition">
+          Initialize Database
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUCCESS MODAL -->
+  <div id="success-modal" class="fixed inset-0 bg-black/95 backdrop-blur-xl hidden flex items-center justify-center z-[150] p-4 transition-all duration-300">
+    <div class="bg-slate-900 border border-emerald-500/50 p-10 rounded-2xl w-full max-w-md shadow-[0_0_40px_rgba(16,185,129,0.3)] text-center relative overflow-hidden transform transition-all scale-100">
+      <div class="absolute top-0 left-0 w-full h-1 bg-emerald-500 animate-pulse"></div>
+      <div class="w-24 h-24 bg-emerald-900/40 rounded-full flex items-center justify-center mx-auto mb-6 border border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.5)]">
+        <i class="fa-solid fa-check text-5xl text-emerald-400"></i>
+      </div>
+      <h2 id="success-title" class="text-3xl font-black text-emerald-400 mb-2 uppercase tracking-tighter italic">Access Granted</h2>
+      <p id="success-message" class="text-slate-300 font-mono tracking-widest text-sm mb-8"></p>
+      <button onclick="document.getElementById('success-modal').classList.add('hidden')" class="w-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/50 py-4 rounded-xl font-bold uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all active:scale-95">
+        Acknowledge
+      </button>
+    </div>
+  </div>
+
+  <!-- CONFIRM MODAL -->
+  <div id="confirm-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center z-[180] p-4">
+    <div class="bg-slate-900 border border-red-500/50 p-8 rounded-2xl w-full max-w-sm shadow-[0_0_20px_rgba(239,68,68,0.4)] text-center">
+      <i class="fa-solid fa-triangle-exclamation text-5xl text-red-500 mb-4 animate-pulse"></i>
+      <h2 class="text-xl font-bold text-red-400 mb-2 uppercase tracking-tighter italic">System Warning</h2>
+      <p id="confirm-message" class="text-slate-400 text-xs uppercase tracking-widest mb-6">Confirm action?</p>
+      <div class="flex gap-3">
+        <button onclick="closeConfirmModal()" class="flex-1 bg-slate-800 text-slate-400 py-3 rounded-lg font-bold text-xs uppercase hover:bg-slate-700 transition-colors">Abort</button>
+        <button onclick="executeConfirmAction()" id="confirm-action-btn" class="flex-1 bg-red-600 text-white py-3 rounded-lg font-bold text-xs uppercase hover:bg-red-500 shadow-lg shadow-red-600/20 transition-all active:scale-95">Proceed</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STAFF MODAL -->
+  <div id="staff-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center z-[140] p-4 overflow-y-auto">
+    <div class="bg-slate-900 border border-emerald-500/30 p-8 rounded-2xl w-full max-w-lg shadow-[0_0_15px_rgba(16,185,129,0.3)] my-auto">
+      <h2 id="staff-modal-title" class="text-xl font-bold text-emerald-400 mb-6 uppercase tracking-tighter italic">Deploy Personnel</h2>
+      <input type="hidden" id="staff-id">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <input type="text" id="staff-name" placeholder="Staff Name" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-emerald-100 outline-none focus:border-emerald-500">
+        <input type="email" id="staff-email" placeholder="Email Address" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-emerald-100 outline-none focus:border-emerald-500">
+        <input type="text" id="staff-wa" placeholder="WA Number" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-emerald-100 outline-none focus:border-emerald-500">
+        <select id="staff-branch" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-emerald-100 outline-none focus:border-emerald-500"></select>
+        <input type="text" id="staff-address" placeholder="Address" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-emerald-100 outline-none focus:border-emerald-500 md:col-span-2">
+        <select id="staff-status" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-emerald-100 outline-none focus:border-emerald-500 md:col-span-2">
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+      </div>
+      <div class="flex gap-2 pt-6">
+        <button onclick="document.getElementById('staff-modal').classList.add('hidden')" class="flex-1 bg-slate-800 text-slate-400 py-3 rounded font-bold text-xs uppercase hover:bg-slate-700">Cancel</button>
+        <button onclick="saveStaff()" id="staff-save-btn" class="flex-1 bg-emerald-600 text-white py-3 rounded font-bold text-xs uppercase hover:bg-emerald-500">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BRANCH MODAL -->
+  <div id="branch-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center z-[140] p-4">
+    <div class="bg-slate-900 border border-indigo-500/30 p-8 rounded-2xl w-full max-w-sm shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+      <h2 id="branch-modal-title" class="text-xl font-bold text-indigo-400 uppercase tracking-tighter italic mb-6">Deploy Branch</h2>
+      <input type="hidden" id="branch-id">
+      <div class="space-y-4">
+        <input type="text" id="branch-name" placeholder="Branch Name" class="w-full bg-slate-950 border border-slate-800 p-4 rounded-lg text-sm text-indigo-100 outline-none focus:border-indigo-500 uppercase transition-colors">
+        <input type="text" id="branch-alias" placeholder="Branch Alias / Optional" class="w-full bg-slate-950 border border-slate-800 p-4 rounded-lg text-sm text-indigo-100 outline-none focus:border-indigo-500 uppercase transition-colors">
+        <select id="branch-status" class="w-full bg-slate-950 border border-slate-800 p-4 rounded-lg text-sm text-indigo-100 outline-none focus:border-indigo-500">
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+        <div class="flex gap-2 pt-4">
+          <button onclick="document.getElementById('branch-modal').classList.add('hidden')" class="flex-1 bg-slate-800 text-slate-400 py-3 rounded-lg font-bold text-xs uppercase hover:bg-slate-700 transition">Cancel</button>
+          <button onclick="saveBranch()" id="branch-save-btn" class="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-bold text-xs uppercase hover:bg-indigo-500 transition shadow-lg shadow-indigo-600/20">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GEOFENCE MODAL -->
+  <div id="geofence-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center z-[140] p-4 overflow-y-auto">
+    <div class="bg-slate-900 border border-blue-500/30 p-8 rounded-2xl w-full max-w-lg shadow-[0_0_20px_rgba(59,130,246,0.25)] my-auto">
+      <h2 id="geofence-modal-title" class="text-xl font-bold text-blue-400 uppercase tracking-tighter italic mb-6">Sync Geofence</h2>
+      <input type="hidden" id="geofence-id">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <select id="geofence-branch" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-blue-100 outline-none focus:border-blue-500 md:col-span-2"></select>
+        <input type="text" id="geofence-name" placeholder="Location Name" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-blue-100 outline-none focus:border-blue-500 md:col-span-2">
+        <input type="number" id="geofence-lat" step="any" placeholder="Latitude" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-blue-100 outline-none focus:border-blue-500">
+        <input type="number" id="geofence-lng" step="any" placeholder="Longitude" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-blue-100 outline-none focus:border-blue-500">
+        <input type="number" id="geofence-radius" placeholder="Radius Meter" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-blue-100 outline-none focus:border-blue-500">
+        <select id="geofence-status" class="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm text-blue-100 outline-none focus:border-blue-500">
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+      </div>
+      <p class="text-[10px] text-slate-500 uppercase tracking-widest mt-4">Tip: click the map in Geofence Control to fill latitude and longitude.</p>
+      <div class="flex gap-2 pt-6">
+        <button onclick="document.getElementById('geofence-modal').classList.add('hidden')" class="flex-1 bg-slate-800 text-slate-400 py-3 rounded-lg font-bold text-xs uppercase hover:bg-slate-700">Cancel</button>
+        <button onclick="saveGeofence()" id="geofence-save-btn" class="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold text-xs uppercase hover:bg-blue-500">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADMIN DASHBOARD -->
+  <div id="dashboard-view" class="fixed inset-0 bg-[#0b1120] hidden z-[110] flex font-mono overflow-hidden text-slate-300">
+
+    <aside id="admin-sidebar" class="w-64 bg-[#0f172a] border-r border-blue-900/30 flex flex-col transition-all duration-300 absolute top-0 left-0 bottom-0 md:relative z-[100] h-full -translate-x-full md:translate-x-0 overflow-hidden shadow-[4px_0_24px_rgba(0,0,0,0.5)] whitespace-nowrap">
+      <div class="p-6 border-b border-blue-900/30 flex items-center gap-3">
+        <div class="w-8 h-8 bg-red-600 rounded flex items-center justify-center text-white font-black"><i class="fa-solid fa-server"></i></div>
+        <h2 class="text-white font-black tracking-tighter text-lg uppercase">System Admin</h2>
+      </div>
+
+      <div class="p-4 flex-1 overflow-y-auto custom-scrollbar">
+        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 ml-2">Core Navigation</p>
+        <ul class="space-y-2">
+          <li><a href="#" onclick="switchAdminTab('overview')" id="admin-tab-overview" class="admin-nav-link flex items-center gap-3 px-4 py-3 rounded-lg bg-purple-900/20 border border-purple-500/30 text-purple-400 text-sm transition-colors"><i class="fa-solid fa-border-all w-5"></i> Overview</a></li>
+          <li><a href="#" onclick="switchAdminTab('staff')" id="admin-tab-staff" class="admin-nav-link flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-sm transition-colors text-slate-400"><i class="fa-solid fa-users w-5"></i> Staff Database</a></li>
+          <li><a href="#" onclick="switchAdminTab('branches')" id="admin-tab-branches" class="admin-nav-link flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-sm transition-colors text-slate-400"><i class="fa-solid fa-building w-5"></i> Branches</a></li>
+          <li><a href="#" onclick="switchAdminTab('geofences')" id="admin-tab-geofences" class="admin-nav-link flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-sm transition-colors text-slate-400"><i class="fa-solid fa-crosshairs w-5"></i> Geofences</a></li>
+          <li><a href="#" onclick="switchAdminTab('attendance')" id="admin-tab-attendance" class="admin-nav-link flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-sm transition-colors text-slate-400"><i class="fa-solid fa-clipboard-check w-5"></i> Attendance</a></li>
+          <li><a href="#" onclick="switchAdminTab('settings')" id="admin-tab-settings" class="admin-nav-link flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-sm transition-colors text-slate-400"><i class="fa-solid fa-sliders w-5"></i> Settings</a></li>
+        </ul>
+      </div>
+
+      <div class="p-4 border-t border-blue-900/30">
+        <button onclick="terminateSession()" class="flex items-center gap-3 px-4 py-3 w-full rounded-lg text-red-500 hover:bg-red-950/30 transition-colors text-sm font-bold uppercase tracking-widest">
+          <i class="fa-solid fa-power-off"></i> Terminate
+        </button>
+      </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col h-full overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHBhdGggZD0iTTAgMGg0MHY0MEgweiIgZmlsbD0ibm9uZSIvPjxwYXRoIGQ9Ik0wIDM5LjVoNDBNMzkuNSAwdi00MCIgc3Ryb2tlPSJyZ2JhKDU5LCAxMzAsIDI0NiwgMC4wNSkiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==')]">
+      <header class="h-20 border-b border-blue-900/30 flex items-center justify-between px-6 bg-[#0b1120]/80 backdrop-blur-md">
+        <div class="flex items-center gap-4">
+          <button onclick="toggleAdminSidebar()" class="text-slate-400 hover:text-white text-xl transition-colors"><i class="fa-solid fa-bars"></i></button>
+          <h1 class="hidden sm:block text-xl font-black text-blue-500 uppercase italic tracking-tighter">Control Center</h1>
+        </div>
+        <div class="flex items-center gap-4 text-right">
+          <div>
+            <p id="admin-display-name" class="text-red-500 font-bold text-xs uppercase tracking-widest">SYS_ADMIN</p>
+            <p class="text-slate-500 text-[10px] uppercase tracking-widest hidden sm:block">Single Dashboard Clearance</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-6 lg:p-10 relative custom-scrollbar">
+
+        <!-- OVERVIEW PANEL -->
+        <div id="admin-overview-panel" class="admin-panel block space-y-8 max-w-7xl mx-auto">
+          <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+              <p class="text-purple-500 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2"><i class="fa-solid fa-chart-line"></i> Global Analytics</p>
+              <h1 class="text-3xl lg:text-5xl font-black text-white uppercase tracking-tighter">System <span class="text-purple-500">Overview</span></h1>
+            </div>
+            <button onclick="refreshAllAdminData()" class="bg-purple-600/20 text-purple-400 border border-purple-500/50 px-6 py-3 rounded text-xs font-bold uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+              <i class="fa-solid fa-rotate"></i> Refresh
+            </button>
+          </div>
+
+          <div id="overview-stats" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow-lg">
+              <h3 class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2"><i class="fa-solid fa-arrow-trend-up text-purple-500"></i> Today Attendance</h3>
+              <div class="h-[220px] w-full relative"><canvas id="todayChart"></canvas></div>
+            </div>
+            <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow-lg">
+              <h3 class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2"><i class="fa-solid fa-users text-blue-500"></i> Currently Checked In</h3>
+              <div id="currently-checked-in-list" class="space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STAFF PANEL -->
+        <div id="admin-staff-panel" class="admin-panel hidden space-y-8 max-w-7xl mx-auto">
+          <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+              <p class="text-blue-500 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2"><i class="fa-solid fa-users"></i> Personnel Database</p>
+              <h1 class="text-3xl lg:text-5xl font-black text-white uppercase tracking-tighter">Staff <span class="text-blue-500">Control</span></h1>
+            </div>
+            <button onclick="openStaffModal()" class="bg-emerald-600/20 text-emerald-500 border border-emerald-500/50 px-6 py-3 rounded text-xs font-bold uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+              <i class="fa-solid fa-plus"></i> Add Staff
+            </button>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+              <input type="text" id="staff-search" onkeyup="renderStaffTable()" placeholder="Search Name, Email, WA..." class="w-full bg-slate-900/80 border border-slate-700 p-3 pl-9 rounded-lg text-xs text-slate-300 outline-none focus:border-blue-500 transition-colors uppercase font-mono tracking-widest">
+            </div>
+            <select id="staff-filter-branch" onchange="renderStaffTable()" class="bg-slate-900/80 border border-slate-700 p-3 rounded-lg text-xs text-blue-100 outline-none focus:border-blue-500 uppercase font-bold"></select>
+            <select id="staff-filter-status" onchange="renderStaffTable()" class="bg-slate-900/80 border border-slate-700 p-3 rounded-lg text-xs text-blue-100 outline-none focus:border-blue-500 uppercase font-bold">
+              <option value="">ALL STATUS</option>
+              <option value="Active">ACTIVE</option>
+              <option value="Inactive">INACTIVE</option>
+            </select>
+          </div>
+
+          <div class="overflow-x-auto bg-slate-900/50 border border-slate-800 rounded-lg shadow-xl custom-scrollbar">
+            <table class="w-full text-left text-xs text-slate-400">
+              <thead class="bg-slate-900 text-blue-400 uppercase tracking-widest text-[10px]">
+                <tr>
+                  <th class="p-4 border-b border-slate-800 whitespace-nowrap">Staff ID</th>
+                  <th class="p-4 border-b border-slate-800 whitespace-nowrap">Name</th>
+                  <th class="p-4 border-b border-slate-800 whitespace-nowrap">Email</th>
+                  <th class="p-4 border-b border-slate-800 whitespace-nowrap">WA</th>
+                  <th class="p-4 border-b border-slate-800 whitespace-nowrap">Branch</th>
+                  <th class="p-4 border-b border-slate-800 whitespace-nowrap">Status</th>
+                  <th class="p-4 border-b border-slate-800 text-right whitespace-nowrap sticky right-0 bg-slate-900 z-10">Action</th>
+                </tr>
+              </thead>
+              <tbody id="staff-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- BRANCHES PANEL -->
+        <div id="admin-branches-panel" class="admin-panel hidden space-y-8 max-w-7xl mx-auto">
+          <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+              <p class="text-indigo-500 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2"><i class="fa-solid fa-building"></i> Branch Infrastructure</p>
+              <h1 class="text-3xl lg:text-5xl font-black text-white uppercase tracking-tighter">Branch <span class="text-indigo-500">Management</span></h1>
+            </div>
+            <button onclick="openBranchModal()" class="bg-indigo-600/20 text-indigo-400 border border-indigo-500/50 px-6 py-3 rounded text-xs font-bold uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all flex items-center gap-2">
+              <i class="fa-solid fa-plus"></i> Add Branch
+            </button>
+          </div>
+
+          <div id="branch-cards-container" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"></div>
+        </div>
+
+        <!-- GEOFENCES PANEL -->
+        <div id="admin-geofences-panel" class="admin-panel hidden space-y-8">
+          <div>
+            <p class="text-blue-500 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2"><i class="fa-solid fa-satellite-dish animate-pulse"></i> Active Monitoring</p>
+            <h1 class="text-3xl lg:text-5xl font-black text-white uppercase tracking-tighter">Geofence <span class="text-blue-500">Control</span></h1>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="space-y-6">
+              <div class="bg-[#0f172a]/80 border border-blue-900/50 p-6 rounded-xl shadow-lg relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-transparent"></div>
+                <h3 class="text-white font-bold text-lg flex items-center gap-2 mb-6"><i class="fa-solid fa-pen-to-square text-blue-500"></i> Coordinate Override</h3>
+                <div class="space-y-5">
+                  <div>
+                    <label class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2 block">Target Branch</label>
+                    <select id="geo-quick-branch" class="w-full bg-[#0b1120] border border-slate-700 p-3 rounded text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors"></select>
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2 block">Location Name</label>
+                    <input type="text" id="geo-quick-name" placeholder="e.g. Main Building" class="w-full bg-[#0b1120] border border-slate-700 p-3 rounded text-sm text-slate-200 outline-none focus:border-blue-500 transition-colors">
+                  </div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <label class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2 block">Latitude</label>
+                      <input type="text" id="geo-quick-lat" readonly class="w-full bg-[#0b1120] border border-slate-700 p-3 rounded text-sm text-slate-400 outline-none">
+                    </div>
+                    <div>
+                      <label class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2 block">Longitude</label>
+                      <input type="text" id="geo-quick-lng" readonly class="w-full bg-[#0b1120] border border-slate-700 p-3 rounded text-sm text-slate-400 outline-none">
+                    </div>
+                  </div>
+                  <div>
+                    <div class="flex justify-between mb-2">
+                      <label class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Radius (Meters)</label>
+                      <span id="geo-radius-display" class="text-[10px] font-bold text-emerald-400">100m</span>
+                    </div>
+                    <input type="range" id="geo-quick-radius" min="10" max="5000" value="100" class="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                  </div>
+                  <button onclick="saveQuickGeofence()" id="geo-save-btn" class="w-full bg-blue-900/30 border border-blue-600 text-blue-400 hover:bg-blue-600 hover:text-white py-4 rounded font-bold text-xs uppercase tracking-widest transition-all">
+                    Sync Coordinates
+                  </button>
+                  <button onclick="openGeofenceModal()" class="w-full bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white py-3 rounded font-bold text-[10px] uppercase tracking-widest transition-all">
+                    Advanced Form
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="lg:col-span-2 relative bg-[#0f172a] border border-slate-800 rounded-xl overflow-hidden shadow-2xl h-[500px] lg:h-auto">
+              <div id="map-container" class="absolute inset-0 z-0"></div>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto bg-slate-900/50 border border-slate-800 rounded-lg shadow-xl custom-scrollbar">
+            <table class="w-full text-left text-xs text-slate-400">
+              <thead class="bg-slate-900 text-blue-400 uppercase tracking-widest text-[10px]">
+                <tr>
+                  <th class="p-4 border-b border-slate-800">Location</th>
+                  <th class="p-4 border-b border-slate-800">Branch</th>
+                  <th class="p-4 border-b border-slate-800">Coordinates</th>
+                  <th class="p-4 border-b border-slate-800">Radius</th>
+                  <th class="p-4 border-b border-slate-800">Status</th>
+                  <th class="p-4 border-b border-slate-800 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="geofence-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ATTENDANCE PANEL -->
+        <div id="admin-attendance-panel" class="admin-panel hidden space-y-8 max-w-7xl mx-auto">
+          <div>
+            <p class="text-emerald-500 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2"><i class="fa-solid fa-clock animate-pulse"></i> Time-Series Ledger</p>
+            <h1 class="text-3xl lg:text-5xl font-black text-white uppercase tracking-tighter">Attendance <span class="text-emerald-500">Log</span></h1>
+          </div>
+
+          <div class="bg-[#0f172a]/80 border border-emerald-900/50 p-6 rounded-xl shadow-lg grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+            <div>
+              <label class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 block">Date</label>
+              <input type="date" id="attendance-date-filter" class="w-full bg-[#0b1120] border border-slate-700 p-3 rounded text-sm text-slate-200 outline-none focus:border-emerald-500">
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 block">Branch</label>
+              <select id="attendance-branch-filter" class="w-full bg-[#0b1120] border border-slate-700 p-3 rounded text-sm text-slate-200 outline-none focus:border-emerald-500"></select>
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 block">Status</label>
+              <select id="attendance-status-filter" class="w-full bg-[#0b1120] border border-slate-700 p-3 rounded text-sm text-slate-200 outline-none focus:border-emerald-500">
+                <option value="">ALL STATUS</option>
+                <option value="Checked In">CHECKED IN</option>
+                <option value="Checked Out">CHECKED OUT</option>
+                <option value="Auto Closed">AUTO CLOSED</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 block">Search</label>
+              <input type="text" id="attendance-search" placeholder="Name / Branch" class="w-full bg-[#0b1120] border border-slate-700 p-3 rounded text-sm text-slate-200 outline-none focus:border-emerald-500">
+            </div>
+            <button onclick="loadAttendanceTable()" id="attendance-load-btn" class="w-full bg-emerald-600/20 border border-emerald-500 text-emerald-400 hover:bg-emerald-600 hover:text-white px-8 py-3 rounded font-bold text-sm uppercase tracking-widest transition-all">
+              Compile
+            </button>
+          </div>
+
+          <div class="bg-[#0f172a] border border-slate-800 rounded-xl overflow-x-auto shadow-2xl pb-2 custom-scrollbar">
+            <table class="w-full text-left text-[10px] whitespace-nowrap">
+              <thead class="text-slate-500 uppercase tracking-widest border-b border-slate-800 bg-[#0b1120]">
+                <tr>
+                  <th class="p-4">Date</th>
+                  <th class="p-4">Name</th>
+                  <th class="p-4">Branch</th>
+                  <th class="p-4">Check-In</th>
+                  <th class="p-4">Check-Out</th>
+                  <th class="p-4">Duration</th>
+                  <th class="p-4">Distance</th>
+                  <th class="p-4">Status</th>
+                </tr>
+              </thead>
+              <tbody id="attendance-table-body" class="divide-y divide-slate-800 text-slate-300"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SETTINGS PANEL -->
+        <div id="admin-settings-panel" class="admin-panel hidden space-y-8 max-w-5xl mx-auto">
+          <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+              <p class="text-amber-500 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-2"><i class="fa-solid fa-sliders"></i> System Runtime</p>
+              <h1 class="text-3xl lg:text-5xl font-black text-white uppercase tracking-tighter">System <span class="text-amber-500">Settings</span></h1>
+            </div>
+            <button onclick="saveAllSettings()" id="settings-save-btn" class="bg-amber-600/20 text-amber-400 border border-amber-500/50 px-6 py-3 rounded text-xs font-bold uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-all flex items-center gap-2">
+              <i class="fa-solid fa-cloud-arrow-up"></i> Save Settings
+            </button>
+          </div>
+
+          <div id="settings-container" class="space-y-4"></div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+<script>
+  // ======================================================
+  // CONFIG
+  // ======================================================
+
+  // Replace this with your deployed Google Apps Script Web App URL.
+  // If you redeploy the same deployment, the old URL can stay the same.
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbx-dEBhSjR8aG7exNKeyi6zIEzAjb6lPDY1pXP5YiI4HgkS9384z2QEfQgNmOl3TyEFIg/exec";
+
+  const server = {
+    call: async (action, data = {}) => {
+      const response = await fetch(GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        redirect: "follow",
+        body: JSON.stringify({ action, data })
+      });
+
+      const result = await response.json();
+      if (result.error) throw new Error(result.error);
+      if (result.success === false && result.error) throw new Error(result.error);
+      return result;
+    }
+  };
+
+  const appState = {
+    admin: null,
+    staff: [],
+    branches: [],
+    geofences: [],
+    attendance: [],
+    settings: [],
+    dashboardStats: null,
+    map: null,
+    mapMarker: null,
+    mapCircle: null,
+    todayChart: null,
+    confirmAction: null
+  };
+
+  // ======================================================
+  // INIT
+  // ======================================================
+
+  window.onload = async () => {
+    setupSecretTrigger();
+    setupRangeListener();
+    loadSavedAdminLogin();
+    setDefaultAttendanceDate();
+    await loadPublicStaff();
+  };
+
+  function setupSecretTrigger() {
+    let clickCount = 0;
+    let clickTimer;
+
+    document.getElementById("secret-trigger").addEventListener("click", () => {
+      clickCount++;
+      clearTimeout(clickTimer);
+
+      if (clickCount >= 3) {
+        document.getElementById("admin-modal").classList.remove("hidden");
+        clickCount = 0;
+      } else {
+        clickTimer = setTimeout(() => { clickCount = 0; }, 1500);
+      }
+    });
+  }
+
+  function setupRangeListener() {
+    const range = document.getElementById("geo-quick-radius");
+    if (!range) return;
+
+    range.addEventListener("input", (e) => {
+      document.getElementById("geo-radius-display").innerText = e.target.value + "m";
+      if (appState.mapCircle) appState.mapCircle.setRadius(Number(e.target.value));
+    });
+  }
+
+  function loadSavedAdminLogin() {
+    const user = localStorage.getItem("adminUser");
+    const pass = localStorage.getItem("adminPass");
+
+    if (user) document.getElementById("admin-user").value = user;
+    if (pass) document.getElementById("admin-pass").value = pass;
+  }
+
+  function setDefaultAttendanceDate() {
+    const input = document.getElementById("attendance-date-filter");
+    if (input) input.value = todayLocalString();
+  }
+
+  // ======================================================
+  // COMMON UI
+  // ======================================================
+
+  function showToast(message, isError = false) {
+    const toast = document.getElementById("toast");
+    toast.textContent = message;
+    toast.className = `fixed top-10 right-10 p-4 rounded-lg border font-bold uppercase text-[12px] tracking-widest backdrop-blur-md transition-all duration-500 z-[300] ${
+      isError
+        ? "bg-red-950/80 border-red-500 text-red-500"
+        : "bg-blue-950/80 border-blue-500 text-blue-400"
+    }`;
+    toast.style.transform = "translateX(0)";
+    setTimeout(() => { toast.style.transform = "translateX(200%)"; }, 4000);
+  }
+
+  function showSuccess(title, message) {
+    document.getElementById("success-title").innerText = title;
+    document.getElementById("success-message").innerText = message;
+    document.getElementById("success-modal").classList.remove("hidden");
+  }
+
+  function toggleAdminPassword() {
+    const input = document.getElementById("admin-pass");
+    const icon = document.getElementById("admin-pass-icon");
+
+    if (input.type === "password") {
+      input.type = "text";
+      icon.classList.remove("fa-eye");
+      icon.classList.add("fa-eye-slash", "text-blue-400");
+    } else {
+      input.type = "password";
+      icon.classList.remove("fa-eye-slash", "text-blue-400");
+      icon.classList.add("fa-eye");
+    }
+  }
+
+  function toggleAdminSidebar() {
+    const sidebar = document.getElementById("admin-sidebar");
+    sidebar.classList.toggle("-translate-x-full");
+    sidebar.classList.toggle("md:-ml-64");
+  }
+
+  function terminateSession() {
+    appState.admin = null;
+    document.getElementById("dashboard-view").classList.add("hidden");
+    document.getElementById("landing-view").classList.remove("hidden");
+    showToast("SESSION TERMINATED", false);
+    loadPublicStaff();
+  }
+
+  function switchAdminTab(tabId) {
+    document.querySelectorAll(".admin-panel").forEach(panel => panel.classList.add("hidden"));
+    document.getElementById(`admin-${tabId}-panel`).classList.remove("hidden");
+
+    document.querySelectorAll(".admin-nav-link").forEach(link => {
+      link.className = "admin-nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-colors hover:bg-slate-800 text-slate-400";
+    });
+
+    const active = document.getElementById(`admin-tab-${tabId}`);
+    const colorMap = {
+      overview: "bg-purple-900/20 border border-purple-500/30 text-purple-400",
+      staff: "bg-blue-900/20 border border-blue-500/30 text-blue-400",
+      branches: "bg-indigo-900/20 border border-indigo-500/30 text-indigo-400",
+      geofences: "bg-blue-900/20 border border-blue-500/30 text-blue-400",
+      attendance: "bg-emerald-900/20 border border-emerald-500/30 text-emerald-400",
+      settings: "bg-amber-900/20 border border-amber-500/30 text-amber-400"
+    };
+
+    active.className = `admin-nav-link flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-colors ${colorMap[tabId]}`;
+
+    if (tabId === "geofences") {
+      setTimeout(() => {
+        initMap();
+        if (appState.map) appState.map.invalidateSize();
+      }, 100);
+    }
+
+    if (tabId === "attendance") loadAttendanceTable();
+
+    if (window.innerWidth < 768) {
+      document.getElementById("admin-sidebar").classList.add("-translate-x-full");
+    }
+  }
+
+  function openConfirmModal(message, callback) {
+    document.getElementById("confirm-message").innerText = message;
+    document.getElementById("confirm-modal").classList.remove("hidden");
+    appState.confirmAction = callback;
+  }
+
+  function closeConfirmModal() {
+    document.getElementById("confirm-modal").classList.add("hidden");
+    appState.confirmAction = null;
+  }
+
+  async function executeConfirmAction() {
+    if (typeof appState.confirmAction === "function") {
+      await appState.confirmAction();
+    }
+    closeConfirmModal();
+  }
+
+  // ======================================================
+  // PUBLIC ATTENDANCE
+  // ======================================================
+
+  async function loadPublicStaff() {
+    const select = document.getElementById("attendance-staff");
+
+    try {
+      const result = await server.call("GET_STAFF_LIST", { status: "Active" });
+      const staff = result.staff || [];
+
+      appState.staff = staff;
+
+      if (!staff.length) {
+        select.innerHTML = '<option value="">NO ACTIVE STAFF FOUND</option>';
+        return;
+      }
+
+      select.innerHTML = '<option value="">SELECT STAFF</option>' + staff.map(item => `
+        <option value="${escapeHtml(item.staff_id)}">${escapeHtml(item.name)} ${item.branch_name ? "• " + escapeHtml(item.branch_name) : ""}</option>
+      `).join("");
+
+      select.onchange = loadSelectedStaffStatus;
+    } catch (err) {
+      select.innerHTML = '<option value="">STAFF LOAD FAILED</option>';
+      showToast(err.message, true);
+    }
+  }
+
+  async function loadSelectedStaffStatus() {
+    const staffId = document.getElementById("attendance-staff").value;
+    const card = document.getElementById("attendance-status-card");
+    const text = document.getElementById("attendance-status-text");
+
+    if (!staffId) {
+      card.classList.add("hidden");
+      return;
+    }
+
+    card.classList.remove("hidden");
+    text.innerText = "LOADING...";
+
+    try {
+      const result = await server.call("GET_TODAY_ATTENDANCE_STATUS", { staff_id: staffId });
+      text.innerText = result.status || "Not Checked In";
+      text.className = `text-sm font-black uppercase tracking-widest ${
+        result.status === "Checked Out"
+          ? "text-emerald-400"
+          : result.status === "Checked In"
+            ? "text-blue-400"
+            : "text-slate-400"
+      }`;
+    } catch (err) {
+      text.innerText = "STATUS FAILED";
+      showToast(err.message, true);
+    }
+  }
+
+  async function handleAttendanceAction(action) {
+    const staffId = document.getElementById("attendance-staff").value;
+    const btn = action === "CHECK_IN" ? document.getElementById("checkin-btn") : document.getElementById("checkout-btn");
+
+    if (!staffId) return showToast("SELECT STAFF FIRST", true);
+
+    if (!navigator.geolocation) {
+      return showToast("GPS NOT SUPPORTED ON THIS DEVICE", true);
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-satellite-dish animate-pulse"></i> GPS...';
+
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      try {
+        btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> SYNCING...';
+
+        const payload = {
+          staff_id: staffId,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        };
+
+        const result = await server.call(action, payload);
+        const title = action === "CHECK_IN" ? "Check-In Success" : "Check-Out Success";
+
+        showSuccess(title, result.message || "ATTENDANCE SYNCED.");
+        await loadSelectedStaffStatus();
+
+        if (appState.admin) {
+          await refreshAllAdminData();
+        }
+      } catch (err) {
+        showToast(err.message, true);
+      } finally {
+        resetAttendanceButtons();
+      }
+    }, () => {
+      resetAttendanceButtons();
+      showToast("GPS DENIED. PLEASE ALLOW LOCATION ACCESS.", true);
+    }, { enableHighAccuracy: true, timeout: 10000 });
+  }
+
+  function resetAttendanceButtons() {
+    const inBtn = document.getElementById("checkin-btn");
+    const outBtn = document.getElementById("checkout-btn");
+
+    inBtn.disabled = false;
+    outBtn.disabled = false;
+
+    inBtn.innerHTML = '<span>Check-In</span><i class="fa-solid fa-right-to-bracket text-sm"></i>';
+    outBtn.innerHTML = '<span>Check-Out</span><i class="fa-solid fa-right-from-bracket text-sm"></i>';
+  }
+
+  // ======================================================
+  // ADMIN AUTH + DB INIT
+  // ======================================================
+
+  async function initializeDatabase() {
+    const btn = document.getElementById("init-db-login-btn");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> INITIALIZING...';
+
+    try {
+      const result = await server.call("INIT_DATABASE");
+      showToast(result.message || "DATABASE INITIALIZED", false);
+      await loadPublicStaff();
+    } catch (err) {
+      showToast(err.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = "Initialize Database";
+    }
+  }
+
+  async function attemptAdminLogin() {
+    const username = document.getElementById("admin-user").value.trim();
+    const password = document.getElementById("admin-pass").value.trim();
+    const btn = document.getElementById("admin-login-btn");
+
+    if (!username || !password) return showToast("CREDENTIALS REQUIRED", true);
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> DECRYPTING...';
+
+    try {
+      const result = await server.call("ADMIN_LOGIN", { username, password });
+
+      localStorage.setItem("adminUser", username);
+      localStorage.setItem("adminPass", password);
+
+      appState.admin = result.user;
+      document.getElementById("admin-display-name").innerText = result.user.display_name || "SYS_ADMIN";
+
+      document.getElementById("admin-modal").classList.add("hidden");
+      document.getElementById("landing-view").classList.add("hidden");
+      document.getElementById("dashboard-view").classList.remove("hidden");
+
+      await refreshAllAdminData();
+
+      showToast(`WELCOME, ${result.user.display_name || "ADMIN"}`, false);
+    } catch (err) {
+      showToast(err.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = "Execute";
+    }
+  }
+
+  // ======================================================
+  // ADMIN DATA REFRESH
+  // ======================================================
+
+  async function refreshAllAdminData() {
+    try {
+      const [stats, staff, branches, geofences, settings] = await Promise.all([
+        server.call("GET_DASHBOARD_STATS"),
+        server.call("GET_STAFF_LIST", {}),
+        server.call("GET_BRANCH_LIST", {}),
+        server.call("GET_GEOFENCE_LIST", {}),
+        server.call("GET_SETTINGS")
+      ]);
+
+      appState.dashboardStats = stats.stats || {};
+      appState.staff = staff.staff || [];
+      appState.branches = branches.branches || [];
+      appState.geofences = geofences.geofences || [];
+      appState.settings = settings.settings || [];
+
+      renderOverview();
+      populateBranchSelects();
+      renderStaffTable();
+      renderBranchCards();
+      renderGeofenceTable();
+      renderSettings();
+      await loadAttendanceTable(false);
+      loadPublicStaff();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  }
+
+  function populateBranchSelects() {
+    const branchOptions = '<option value="">ALL BRANCHES</option>' + appState.branches
+      .filter(b => b.status === "Active")
+      .map(b => `<option value="${escapeHtml(b.branch_id)}">${escapeHtml(b.branch_name)}</option>`)
+      .join("");
+
+    const pureOptions = '<option value="">SELECT BRANCH</option>' + appState.branches
+      .filter(b => b.status === "Active")
+      .map(b => `<option value="${escapeHtml(b.branch_id)}">${escapeHtml(b.branch_name)}</option>`)
+      .join("");
+
+    ["staff-branch", "geofence-branch", "geo-quick-branch"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = pureOptions;
+    });
+
+    ["staff-filter-branch", "attendance-branch-filter"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = branchOptions;
+    });
+  }
+
+  // ======================================================
+  // OVERVIEW
+  // ======================================================
+
+  function renderOverview() {
+    const s = appState.dashboardStats || {};
+    document.getElementById("overview-stats").innerHTML = `
+      ${statCard("Active Staff", s.active_staff || 0, "blue", "fa-users")}
+      ${statCard("Active Branches", s.active_branches || 0, "indigo", "fa-building")}
+      ${statCard("Checked In Today", s.today_checked_in || 0, "emerald", "fa-right-to-bracket")}
+      ${statCard("Checked Out Today", s.today_checked_out || 0, "purple", "fa-right-from-bracket")}
+      ${statCard("Currently In", s.currently_checked_in || 0, "amber", "fa-clock")}
+      ${statCard("Total Attendance", s.today_total_attendance || 0, "cyan", "fa-clipboard-check")}
+      ${statCard("Geofence Nodes", s.active_geofences || 0, "blue", "fa-crosshairs")}
+      ${statCard("Inactive Staff", s.inactive_staff || 0, "red", "fa-user-slash")}
+    `;
+
+    renderTodayChart(s);
+    renderCurrentlyCheckedIn();
+  }
+
+  function statCard(label, value, color, icon) {
+    const colorMap = {
+      blue: "border-blue-500 text-blue-400",
+      indigo: "border-indigo-500 text-indigo-400",
+      emerald: "border-emerald-500 text-emerald-400",
+      purple: "border-purple-500 text-purple-400",
+      amber: "border-amber-500 text-amber-400",
+      cyan: "border-cyan-500 text-cyan-400",
+      red: "border-red-500 text-red-400"
+    };
+
+    return `
+      <div class="bg-slate-900/80 border-l-2 ${colorMap[color] || colorMap.blue} p-4 rounded-r-xl shadow-lg relative overflow-hidden">
+        <p class="text-[9px] text-slate-400 uppercase font-bold tracking-widest flex items-center gap-2"><i class="fa-solid ${icon}"></i> ${label}</p>
+        <h3 class="text-2xl font-black text-white mt-1">${value}</h3>
+      </div>
+    `;
+  }
+
+  function renderTodayChart(stats) {
+    const canvas = document.getElementById("todayChart");
+    if (!canvas) return;
+
+    if (appState.todayChart) appState.todayChart.destroy();
+
+    appState.todayChart = new Chart(canvas, {
+      type: "doughnut",
+      data: {
+        labels: ["Checked In", "Checked Out", "Inactive Staff"],
+        datasets: [{
+          data: [stats.today_checked_in || 0, stats.today_checked_out || 0, stats.inactive_staff || 0],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: "#cbd5e1", font: { size: 10 } } }
+        }
+      }
+    });
+  }
+
+  function renderCurrentlyCheckedIn() {
+    const container = document.getElementById("currently-checked-in-list");
+    const rows = appState.attendance.filter(row => row.attendance_status === "Checked In");
+
+    if (!rows.length) {
+      container.innerHTML = '<div class="text-center text-slate-500 py-10 text-[10px] uppercase tracking-widest font-bold">No active attendance session.</div>';
+      return;
+    }
+
+    container.innerHTML = rows.map(row => `
+      <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-3 flex justify-between items-center">
+        <div>
+          <p class="text-sm text-white font-bold uppercase">${escapeHtml(row.name)}</p>
+          <p class="text-[9px] text-slate-500 uppercase tracking-widest">${escapeHtml(row.branch_name)} • ${escapeHtml(row.checkin_time)}</p>
+        </div>
+        <span class="text-[9px] text-blue-400 font-bold uppercase tracking-widest">In</span>
+      </div>
+    `).join("");
+  }
+
+  // ======================================================
+  // STAFF
+  // ======================================================
+
+  function renderStaffTable() {
+    const search = normalizeText(document.getElementById("staff-search")?.value || "");
+    const branch = document.getElementById("staff-filter-branch")?.value || "";
+    const status = document.getElementById("staff-filter-status")?.value || "";
+
+    let rows = [...appState.staff];
+
+    if (search) {
+      rows = rows.filter(row =>
+        normalizeText(row.name).includes(search) ||
+        normalizeText(row.email).includes(search) ||
+        normalizeText(row.wa_number).includes(search)
+      );
+    }
+
+    if (branch) rows = rows.filter(row => row.branch_id === branch);
+    if (status) rows = rows.filter(row => row.staff_status === status);
+
+    document.getElementById("staff-table-body").innerHTML = rows.map(row => {
+      const waLink = getWhatsAppLink(row.wa_number, row.name);
+
+      return `
+        <tr class="border-b border-slate-800 hover:bg-slate-800/50 transition-colors text-[10px]">
+          <td class="p-4 font-mono text-blue-400 font-bold whitespace-nowrap">${escapeHtml(row.staff_id)}</td>
+          <td class="p-4 text-slate-200 font-bold whitespace-nowrap">${escapeHtml(row.name)}</td>
+          <td class="p-4 text-slate-400 whitespace-nowrap">${escapeHtml(row.email || "-")}</td>
+          <td class="p-4 whitespace-nowrap">
+            ${row.wa_number ? `<a href="${waLink}" target="_blank" class="inline-flex items-center gap-2 bg-emerald-900/30 text-emerald-400 px-3 py-1.5 rounded-lg border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-all font-bold text-[11px] uppercase tracking-widest"><i class="fa-brands fa-whatsapp"></i>${escapeHtml(row.wa_number)}</a>` : '<span class="text-slate-600">-</span>'}
+          </td>
+          <td class="p-4 whitespace-nowrap"><span class="bg-slate-800 text-slate-300 px-2 py-1 rounded uppercase">${escapeHtml(row.branch_name || row.branch_id || "-")}</span></td>
+          <td class="p-4 font-bold uppercase whitespace-nowrap ${row.staff_status === "Active" ? "text-emerald-400" : "text-red-400"}">${escapeHtml(row.staff_status)}</td>
+          <td class="p-4 text-right whitespace-nowrap sticky right-0 bg-slate-900/95 backdrop-blur z-10">
+            <div class="flex justify-end gap-3">
+              <button onclick="openStaffModal('${escapeJs(row.staff_id)}')" class="text-amber-500 hover:text-amber-400 font-bold uppercase tracking-widest flex items-center gap-1 transition-colors"><i class="fa-solid fa-pen"></i> Edit</button>
+              <button onclick="confirmDeactivateStaff('${escapeJs(row.staff_id)}', '${escapeJs(row.name)}')" class="text-red-500 hover:text-red-400 font-bold uppercase tracking-widest flex items-center gap-1 transition-colors"><i class="fa-solid fa-ban"></i></button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("") || '<tr><td colspan="7" class="p-8 text-center text-slate-500 uppercase tracking-widest">No staff found.</td></tr>';
+  }
+
+  function openStaffModal(staffId = "") {
+    const row = staffId ? appState.staff.find(item => item.staff_id === staffId) : null;
+
+    document.getElementById("staff-modal-title").innerText = row ? "Edit Personnel" : "Deploy Personnel";
+    document.getElementById("staff-id").value = row?.staff_id || "";
+    document.getElementById("staff-name").value = row?.name || "";
+    document.getElementById("staff-email").value = row?.email || "";
+    document.getElementById("staff-wa").value = row?.wa_number || "";
+    document.getElementById("staff-address").value = row?.address || "";
+    document.getElementById("staff-branch").value = row?.branch_id || "";
+    document.getElementById("staff-status").value = row?.staff_status || "Active";
+    document.getElementById("staff-modal").classList.remove("hidden");
+  }
+
+  async function saveStaff() {
+    const btn = document.getElementById("staff-save-btn");
+    const staffId = document.getElementById("staff-id").value;
+
+    const payload = {
+      staff_id: staffId,
+      name: document.getElementById("staff-name").value.trim(),
+      email: document.getElementById("staff-email").value.trim(),
+      wa_number: document.getElementById("staff-wa").value.trim(),
+      address: document.getElementById("staff-address").value.trim(),
+      branch_id: document.getElementById("staff-branch").value,
+      staff_status: document.getElementById("staff-status").value
+    };
+
+    if (!payload.name || !payload.branch_id) return showToast("NAME AND BRANCH REQUIRED", true);
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> SAVING...';
+
+    try {
+      await server.call(staffId ? "UPDATE_STAFF" : "ADD_STAFF", payload);
+      document.getElementById("staff-modal").classList.add("hidden");
+      showToast("STAFF SAVED", false);
+      await refreshAllAdminData();
+    } catch (err) {
+      showToast(err.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = "Save";
+    }
+  }
+
+  function confirmDeactivateStaff(staffId, name) {
+    openConfirmModal(`Deactivate staff ${name}?`, async () => {
+      await server.call("DEACTIVATE_STAFF", { staff_id: staffId });
+      showToast("STAFF DEACTIVATED", false);
+      await refreshAllAdminData();
+    });
+  }
+
+  // ======================================================
+  // BRANCHES
+  // ======================================================
+
+  function renderBranchCards() {
+    const container = document.getElementById("branch-cards-container");
+
+    if (!appState.branches.length) {
+      container.innerHTML = '<div class="col-span-full text-center text-slate-500 uppercase tracking-widest py-10 text-[10px] font-bold">No branch nodes detected.</div>';
+      return;
+    }
+
+    const staffCount = {};
+    appState.staff.forEach(staff => {
+      staffCount[staff.branch_id] = (staffCount[staff.branch_id] || 0) + 1;
+    });
+
+    container.innerHTML = appState.branches.map(row => `
+      <div class="bg-white border border-slate-200 p-6 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_8px_30px_rgba(99,102,241,0.2)] hover:-translate-y-1 transition-all duration-300 group relative overflow-hidden flex flex-col justify-between min-h-[170px]">
+        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div class="absolute top-4 right-4 flex gap-3">
+          <button onclick="openBranchModal('${escapeJs(row.branch_id)}')" class="text-slate-400 hover:text-amber-500 transition-colors"><i class="fa-solid fa-pen"></i></button>
+          <button onclick="confirmDeactivateBranch('${escapeJs(row.branch_id)}', '${escapeJs(row.branch_name)}')" class="text-slate-400 hover:text-red-500 transition-colors"><i class="fa-solid fa-ban"></i></button>
+        </div>
+        <div>
+          <h3 class="text-xl font-black text-slate-800 uppercase tracking-tighter group-hover:text-indigo-600 transition-colors duration-300 mb-1">${escapeHtml(row.branch_name)}</h3>
+          <p class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">${escapeHtml(row.branch_alias || row.branch_id)}</p>
+        </div>
+        <div class="mt-6 flex justify-between items-end relative z-10">
+          <div>
+            <p class="text-[9px] text-slate-400 uppercase font-bold tracking-widest mb-1">Assigned Staff</p>
+            <p class="text-4xl font-black text-indigo-600 leading-none tracking-tighter">${staffCount[row.branch_id] || 0}</p>
+          </div>
+          <div class="text-right">
+            <p class="text-[9px] text-slate-400 uppercase font-bold tracking-widest mb-1">Status</p>
+            <p class="text-xs font-black uppercase ${row.status === "Active" ? "text-emerald-600" : "text-red-600"}">${escapeHtml(row.status)}</p>
+          </div>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  function openBranchModal(branchId = "") {
+    const row = branchId ? appState.branches.find(item => item.branch_id === branchId) : null;
+
+    document.getElementById("branch-modal-title").innerText = row ? "Edit Branch" : "Deploy Branch";
+    document.getElementById("branch-id").value = row?.branch_id || "";
+    document.getElementById("branch-name").value = row?.branch_name || "";
+    document.getElementById("branch-alias").value = row?.branch_alias || "";
+    document.getElementById("branch-status").value = row?.status || "Active";
+    document.getElementById("branch-modal").classList.remove("hidden");
+  }
+
+  async function saveBranch() {
+    const btn = document.getElementById("branch-save-btn");
+    const branchId = document.getElementById("branch-id").value;
+
+    const payload = {
+      branch_id: branchId,
+      branch_name: document.getElementById("branch-name").value.trim(),
+      branch_alias: document.getElementById("branch-alias").value.trim(),
+      status: document.getElementById("branch-status").value
+    };
+
+    if (!payload.branch_name) return showToast("BRANCH NAME REQUIRED", true);
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i>';
+
+    try {
+      await server.call(branchId ? "UPDATE_BRANCH" : "ADD_BRANCH", payload);
+      document.getElementById("branch-modal").classList.add("hidden");
+      showToast("BRANCH SAVED", false);
+      await refreshAllAdminData();
+    } catch (err) {
+      showToast(err.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = "Save";
+    }
+  }
+
+  function confirmDeactivateBranch(branchId, branchName) {
+    openConfirmModal(`Deactivate branch ${branchName}?`, async () => {
+      await server.call("DEACTIVATE_BRANCH", { branch_id: branchId });
+      showToast("BRANCH DEACTIVATED", false);
+      await refreshAllAdminData();
+    });
+  }
+
+  // ======================================================
+  // GEOFENCES
+  // ======================================================
+
+  function initMap() {
+    if (appState.map) return;
+
+    appState.map = L.map("map-container", { zoomControl: false }).setView([-0.0263, 109.3425], 13);
+
+    L.tileLayer("https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
+      attribution: "&copy; Google Maps",
+      maxZoom: 20
+    }).addTo(appState.map);
+
+    L.control.zoom({ position: "topright" }).addTo(appState.map);
+
+    appState.map.on("click", (e) => {
+      const lat = e.latlng.lat;
+      const lng = e.latlng.lng;
+      const radius = Number(document.getElementById("geo-quick-radius").value || 100);
+
+      document.getElementById("geo-quick-lat").value = lat.toFixed(6);
+      document.getElementById("geo-quick-lng").value = lng.toFixed(6);
+      document.getElementById("geofence-lat").value = lat.toFixed(6);
+      document.getElementById("geofence-lng").value = lng.toFixed(6);
+
+      updateMapTarget(lat, lng, radius);
+    });
+
+    renderGeofenceMarkers();
+  }
+
+  function updateMapTarget(lat, lng, radius) {
+    if (!appState.map) return;
+
+    if (appState.mapMarker) appState.map.removeLayer(appState.mapMarker);
+    if (appState.mapCircle) appState.map.removeLayer(appState.mapCircle);
+
+    const cyberIcon = L.divIcon({
+      className: "custom-div-icon",
+      html: '<div style="width:12px; height:12px; background:#3b82f6; border:2px solid #fff; border-radius:50%; box-shadow: 0 0 10px #3b82f6;"></div>',
+      iconSize: [12, 12],
+      iconAnchor: [6, 6]
+    });
+
+    appState.mapMarker = L.marker([lat, lng], { icon: cyberIcon }).addTo(appState.map);
+    appState.mapCircle = L.circle([lat, lng], {
+      color: "#3b82f6",
+      fillColor: "#3b82f6",
+      fillOpacity: 0.1,
+      weight: 1,
+      radius: Number(radius)
+    }).addTo(appState.map);
+  }
+
+  function renderGeofenceMarkers() {
+    if (!appState.map) return;
+
+    appState.geofences.forEach(geo => {
+      if (geo.status !== "Active") return;
+
+      const lat = Number(geo.latitude);
+      const lng = Number(geo.longitude);
+      if (!lat || !lng) return;
+
+      L.circle([lat, lng], {
+        color: "#10b981",
+        fillColor: "#10b981",
+        fillOpacity: 0.05,
+        weight: 1,
+        radius: Number(geo.radius_meter || 100)
+      }).bindPopup(`<b>${escapeHtml(geo.location_name)}</b><br>${escapeHtml(geo.branch_name || "")}`).addTo(appState.map);
+    });
+  }
+
+  function renderGeofenceTable() {
+    const body = document.getElementById("geofence-table-body");
+
+    body.innerHTML = appState.geofences.map(row => `
+      <tr class="border-b border-slate-800 hover:bg-slate-800/50 transition-colors text-[10px]">
+        <td class="p-4 text-blue-400 font-bold whitespace-nowrap">${escapeHtml(row.location_name)}</td>
+        <td class="p-4 text-slate-300 whitespace-nowrap">${escapeHtml(row.branch_name || row.branch_id)}</td>
+        <td class="p-4 text-slate-400 font-mono whitespace-nowrap">${escapeHtml(row.latitude)}, ${escapeHtml(row.longitude)}</td>
+        <td class="p-4 text-slate-300 font-bold whitespace-nowrap">${escapeHtml(row.radius_meter)}m</td>
+        <td class="p-4 font-bold uppercase whitespace-nowrap ${row.status === "Active" ? "text-emerald-400" : "text-red-400"}">${escapeHtml(row.status)}</td>
+        <td class="p-4 text-right whitespace-nowrap">
+          <button onclick="openGeofenceModal('${escapeJs(row.geofence_id)}')" class="text-amber-500 hover:text-amber-400 font-bold uppercase tracking-widest mr-3"><i class="fa-solid fa-pen"></i> Edit</button>
+          <button onclick="confirmDeactivateGeofence('${escapeJs(row.geofence_id)}', '${escapeJs(row.location_name)}')" class="text-red-500 hover:text-red-400 font-bold uppercase tracking-widest"><i class="fa-solid fa-ban"></i></button>
+        </td>
+      </tr>
+    `).join("") || '<tr><td colspan="6" class="p-8 text-center text-slate-500 uppercase tracking-widest">No geofence found.</td></tr>';
+  }
+
+  function openGeofenceModal(geofenceId = "") {
+    const row = geofenceId ? appState.geofences.find(item => item.geofence_id === geofenceId) : null;
+
+    document.getElementById("geofence-modal-title").innerText = row ? "Edit Geofence" : "Sync Geofence";
+    document.getElementById("geofence-id").value = row?.geofence_id || "";
+    document.getElementById("geofence-branch").value = row?.branch_id || "";
+    document.getElementById("geofence-name").value = row?.location_name || "";
+    document.getElementById("geofence-lat").value = row?.latitude || document.getElementById("geo-quick-lat").value || "";
+    document.getElementById("geofence-lng").value = row?.longitude || document.getElementById("geo-quick-lng").value || "";
+    document.getElementById("geofence-radius").value = row?.radius_meter || document.getElementById("geo-quick-radius").value || "100";
+    document.getElementById("geofence-status").value = row?.status || "Active";
+    document.getElementById("geofence-modal").classList.remove("hidden");
+  }
+
+  async function saveQuickGeofence() {
+    const payload = {
+      branch_id: document.getElementById("geo-quick-branch").value,
+      location_name: document.getElementById("geo-quick-name").value.trim(),
+      latitude: document.getElementById("geo-quick-lat").value,
+      longitude: document.getElementById("geo-quick-lng").value,
+      radius_meter: document.getElementById("geo-quick-radius").value,
+      status: "Active"
+    };
+
+    if (!payload.branch_id || !payload.location_name || !payload.latitude || !payload.longitude) {
+      return showToast("BRANCH, LOCATION, AND MAP TARGET REQUIRED", true);
+    }
+
+    try {
+      await server.call("ADD_GEOFENCE", payload);
+      showToast("GEOFENCE SYNCED", false);
+      document.getElementById("geo-quick-name").value = "";
+      await refreshAllAdminData();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  }
+
+  async function saveGeofence() {
+    const btn = document.getElementById("geofence-save-btn");
+    const geofenceId = document.getElementById("geofence-id").value;
+
+    const payload = {
+      geofence_id: geofenceId,
+      branch_id: document.getElementById("geofence-branch").value,
+      location_name: document.getElementById("geofence-name").value.trim(),
+      latitude: document.getElementById("geofence-lat").value,
+      longitude: document.getElementById("geofence-lng").value,
+      radius_meter: document.getElementById("geofence-radius").value,
+      status: document.getElementById("geofence-status").value
+    };
+
+    if (!payload.branch_id || !payload.location_name || !payload.latitude || !payload.longitude) {
+      return showToast("REQUIRED GEOFENCE DATA MISSING", true);
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i>';
+
+    try {
+      await server.call(geofenceId ? "UPDATE_GEOFENCE" : "ADD_GEOFENCE", payload);
+      document.getElementById("geofence-modal").classList.add("hidden");
+      showToast("GEOFENCE SAVED", false);
+      await refreshAllAdminData();
+    } catch (err) {
+      showToast(err.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = "Save";
+    }
+  }
+
+  function confirmDeactivateGeofence(geofenceId, locationName) {
+    openConfirmModal(`Deactivate geofence ${locationName}?`, async () => {
+      await server.call("DEACTIVATE_GEOFENCE", { geofence_id: geofenceId });
+      showToast("GEOFENCE DEACTIVATED", false);
+      await refreshAllAdminData();
+    });
+  }
+
+  // ======================================================
+  // ATTENDANCE ADMIN
+  // ======================================================
+
+  async function loadAttendanceTable(showErrors = true) {
+    const payload = {
+      date: document.getElementById("attendance-date-filter")?.value || todayLocalString(),
+      branch_id: document.getElementById("attendance-branch-filter")?.value || "",
+      status: document.getElementById("attendance-status-filter")?.value || "",
+      search: document.getElementById("attendance-search")?.value || ""
+    };
+
+    try {
+      const result = await server.call("GET_ATTENDANCE_LIST", payload);
+      appState.attendance = result.attendance || [];
+      renderAttendanceTable();
+      renderCurrentlyCheckedIn();
+    } catch (err) {
+      if (showErrors) showToast(err.message, true);
+    }
+  }
+
+  function renderAttendanceTable() {
+    const body = document.getElementById("attendance-table-body");
+    const rows = appState.attendance;
+
+    body.innerHTML = rows.map(row => `
+      <tr class="hover:bg-blue-900/20 transition-colors">
+        <td class="p-4 text-slate-400 font-mono">${escapeHtml(row.attendance_date)}</td>
+        <td class="p-4">
+          <div class="font-bold text-emerald-400 text-xs">${escapeHtml(row.name)}</div>
+          <div class="text-slate-500 text-[9px] mt-1">${escapeHtml(row.staff_id)}</div>
+        </td>
+        <td class="p-4 text-slate-300">${escapeHtml(row.branch_name)}</td>
+        <td class="p-4 text-blue-400 font-bold">${escapeHtml(row.checkin_time || "-")}</td>
+        <td class="p-4 text-emerald-400 font-bold">${escapeHtml(row.checkout_time || "-")}</td>
+        <td class="p-4 text-amber-400 font-bold">${formatDuration(row.duration_minutes)}</td>
+        <td class="p-4 text-slate-400">
+          <div>IN: ${escapeHtml(row.checkin_distance_meter || "-")}m</div>
+          <div>OUT: ${escapeHtml(row.checkout_distance_meter || "-")}m</div>
+        </td>
+        <td class="p-4 font-black uppercase ${row.attendance_status === "Checked Out" ? "text-emerald-400" : "text-blue-400"}">${escapeHtml(row.attendance_status)}</td>
+      </tr>
+    `).join("") || '<tr><td colspan="8" class="p-8 text-center text-slate-500 uppercase tracking-widest italic">No attendance recorded.</td></tr>';
+  }
+
+  // ======================================================
+  // SETTINGS
+  // ======================================================
+
+  function renderSettings() {
+    const container = document.getElementById("settings-container");
+
+    if (!appState.settings.length) {
+      container.innerHTML = '<div class="text-center text-slate-500 py-10 uppercase tracking-widest text-[10px]">No settings found. Initialize database first.</div>';
+      return;
+    }
+
+    container.innerHTML = appState.settings.map(row => `
+      <div class="bg-slate-900/80 border border-slate-800 p-5 rounded-xl grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+        <div class="md:col-span-1">
+          <p class="text-amber-400 font-black uppercase tracking-tighter text-sm">${escapeHtml(row.setting_key)}</p>
+          <p class="text-[9px] text-slate-500 uppercase tracking-widest mt-1">${escapeHtml(row.setting_type)}</p>
+        </div>
+        <div class="md:col-span-1">
+          <input data-setting-key="${escapeHtml(row.setting_key)}" data-setting-type="${escapeHtml(row.setting_type)}" data-setting-description="${escapeHtml(row.description)}" value="${escapeHtml(row.setting_value)}" class="setting-input w-full bg-slate-950 border border-slate-700 p-3 rounded text-sm text-amber-100 outline-none focus:border-amber-500">
+        </div>
+        <div class="md:col-span-2">
+          <p class="text-xs text-slate-400">${escapeHtml(row.description)}</p>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  async function saveAllSettings() {
+    const inputs = Array.from(document.querySelectorAll(".setting-input"));
+
+    const settings = inputs.map(input => ({
+      setting_key: input.dataset.settingKey,
+      setting_value: input.value,
+      setting_type: input.dataset.settingType || "text",
+      description: input.dataset.settingDescription || ""
+    }));
+
+    const btn = document.getElementById("settings-save-btn");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Saving...';
+
+    try {
+      await server.call("BULK_UPDATE_SETTINGS", { settings });
+      showToast("SETTINGS UPDATED", false);
+      await refreshAllAdminData();
+    } catch (err) {
+      showToast(err.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Save Settings';
+    }
+  }
+
+  // ======================================================
+  // UTILITIES
+  // ======================================================
+
+  function todayLocalString() {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function normalizeText(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function escapeJs(value) {
+    return String(value ?? "")
+      .replaceAll("\\", "\\\\")
+      .replaceAll("'", "\\'")
+      .replaceAll("\n", "\\n")
+      .replaceAll("\r", "");
+  }
+
+  function getWhatsAppLink(number, name) {
+    let clean = String(number || "").replace(/\D/g, "");
+    if (clean.startsWith("0")) clean = "62" + clean.substring(1);
+    const message = encodeURIComponent(`Hallo ${name || "Team"}, how's it going?`);
+    return clean ? `https://wa.me/${clean}?text=${message}` : "#";
+  }
+
+  function formatDuration(minutes) {
+    if (minutes === "" || minutes === undefined || minutes === null) return "-";
+    const n = Number(minutes);
+    if (Number.isNaN(n)) return "-";
+    const h = Math.floor(n / 60);
+    const m = n % 60;
+    if (h <= 0) return `${m}m`;
+    return `${h}h ${m}m`;
+  }
+</script>
+</body>
+</html>
