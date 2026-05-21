@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html class="light" lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Managerku.id - Attendance</title>
+
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: '#006948',
+            primarySoft: '#86f8c2',
+            primaryDim: '#69dba8',
+            secondary: '#1f6d00',
+            secondarySoft: '#8ffc67',
+            background: '#f4fbf9',
+            surface: '#ffffff',
+            surfaceLow: '#eef5f3',
+            surfaceMid: '#e8efed',
+            surfaceHigh: '#dde4e2',
+            dark: '#161d1c',
+            darkSoft: '#3d4a42',
+            inverse: '#2b3231',
+            outline: '#bccac0',
+            error: '#ba1a1a',
+            errorSoft: '#ffdad6'
+          },
+          borderRadius: {
+            card: '24px'
+          },
+          fontFamily: {
+            jakarta: ['Plus Jakarta Sans', 'sans-serif']
+          },
+          boxShadow: {
+            card: '0 30px 60px -12px rgba(5, 26, 19, 0.08)',
+            button: '0 18px 30px -10px rgba(0, 105, 72, 0.35)'
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html {
+      min-height: 100%;
+    }
+
+    body {
+      font-family: "Plus Jakarta Sans", sans-serif;
+      min-height: 100dvh;
+      overflow-x: hidden;
+    }
+
+    #root {
+      min-height: 100dvh;
+    }
+
+    @supports not (height: 100dvh) {
+      body,
+      #root {
+        min-height: 100vh;
+      }
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(22px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes meshGradient {
+      0% {
+        background-position: 0% 50%;
+      }
+
+      50% {
+        background-position: 100% 50%;
+      }
+
+      100% {
+        background-position: 0% 50%;
+      }
+    }
+
+    @keyframes spinSoft {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .mesh-bg {
+      background: linear-gradient(-45deg, #f4fbf9, #e6f4f0, #d0e8dc, #f4fbf9);
+      background-size: 400% 400%;
+      animation: meshGradient 15s ease infinite;
+    }
+
+    .animate-fade-in-up {
+      opacity: 0;
+      animation: fadeInUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .stagger-1 {
+      animation-delay: 0.1s;
+    }
+
+    .stagger-2 {
+      animation-delay: 0.2s;
+    }
+
+    .stagger-3 {
+      animation-delay: 0.3s;
+    }
+
+    .stagger-4 {
+      animation-delay: 0.4s;
+    }
+
+    .stagger-5 {
+      animation-delay: 0.5s;
+    }
+
+    .input-glow:focus {
+      box-shadow: 0 0 0 4px rgba(0, 105, 72, 0.1);
+    }
+
+    .spin-soft {
+      animation: spinSoft 0.9s linear infinite;
+    }
+  </style>
+</head>
+
+<body class="mesh-bg min-h-[100dvh] text-dark overflow-x-hidden">
+  <div id="root" class="min-h-[100dvh]"></div>
+
+  <script type="text/babel">
+    const { useEffect, useState } = React;
+
+    const STORAGE_KEY = 'managerku_attendance_employee_id';
+    const REMEMBER_KEY = 'managerku_attendance_remember_me';
+    const ADMIN_SESSION_KEY = 'managerku_admin_session';
+
+    /**
+     * Paste your deployed Google Apps Script Web App URL here.
+     * Example:
+     * const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxxxx/exec';
+     */
+    const GAS_API_URL = 'PASTE_YOUR_DEPLOYED_GAS_WEB_APP_URL_HERE';
+
+    const ADMIN_PAGE_URL = './admin.html';
+
+    function App() {
+      const [employeeId, setEmployeeId] = useState('');
+      const [rememberMe, setRememberMe] = useState(false);
+      const [loadingType, setLoadingType] = useState('');
+      const [message, setMessage] = useState(null);
+
+      const [logoClickCount, setLogoClickCount] = useState(0);
+      const [logoClickTimer, setLogoClickTimer] = useState(null);
+      const [showAdminLogin, setShowAdminLogin] = useState(false);
+      const [adminEmail, setAdminEmail] = useState('');
+      const [adminPassword, setAdminPassword] = useState('');
+      const [adminLoading, setAdminLoading] = useState(false);
+      const [adminError, setAdminError] = useState('');
+
+      const isLoading = Boolean(loadingType);
+
+      useEffect(() => {
+        const savedRemember = localStorage.getItem(REMEMBER_KEY) === 'true';
+        const savedEmployeeId = localStorage.getItem(STORAGE_KEY) || '';
+
+        setRememberMe(savedRemember);
+
+        if (savedRemember && savedEmployeeId) {
+          setEmployeeId(savedEmployeeId);
+        }
+      }, []);
+
+      useEffect(() => {
+        if (rememberMe) {
+          localStorage.setItem(REMEMBER_KEY, 'true');
+          localStorage.setItem(STORAGE_KEY, employeeId.trim());
+        } else {
+          localStorage.removeItem(REMEMBER_KEY);
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }, [rememberMe, employeeId]);
+
+      function isApiConfigured() {
+        return GAS_API_URL && GAS_API_URL !== 'PASTE_YOUR_DEPLOYED_GAS_WEB_APP_URL_HERE';
+      }
+
+      async function apiRequest(action, payload = {}) {
+        if (!isApiConfigured()) {
+          throw new Error('GAS_API_URL belum diisi. Paste URL Web App Google Apps Script terlebih dahulu.');
+        }
+
+        const response = await fetch(GAS_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify({
+            action,
+            payload
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`API request gagal. Status: ${response.status}`);
+        }
+
+        const result = await response.json();
+
+        if (!result) {
+          throw new Error('Response API kosong.');
+        }
+
+        return result;
+      }
+
+      function showMessage(type, title, text, data = null) {
+        setMessage({
+          type,
+          title,
+          text,
+          data
+        });
+      }
+
+      function clearMessage() {
+        setMessage(null);
+      }
+
+      function handleLogoClick() {
+        const nextCount = logoClickCount + 1;
+        setLogoClickCount(nextCount);
+
+        if (logoClickTimer) {
+          clearTimeout(logoClickTimer);
+        }
+
+        const timer = setTimeout(() => {
+          setLogoClickCount(0);
+        }, 1200);
+
+        setLogoClickTimer(timer);
+
+        if (nextCount >= 3) {
+          clearTimeout(timer);
+          setLogoClickCount(0);
+          setShowAdminLogin(true);
+          setAdminError('');
+        }
+      }
+
+      function closeAdminLogin() {
+        if (adminLoading) return;
+
+        setShowAdminLogin(false);
+        setAdminEmail('');
+        setAdminPassword('');
+        setAdminError('');
+      }
+
+      async function handleAdminLogin(e) {
+        e.preventDefault();
+
+        const cleanEmail = adminEmail.trim();
+        const cleanPassword = adminPassword.trim();
+
+        if (!cleanEmail || !cleanPassword) {
+          setAdminError('Email dan password wajib diisi.');
+          return;
+        }
+
+        setAdminLoading(true);
+        setAdminError('');
+
+        try {
+          const response = await apiRequest('adminLogin', {
+            email: cleanEmail,
+            password: cleanPassword
+          });
+
+          setAdminLoading(false);
+
+          if (!response || !response.success) {
+            setAdminError(response?.message || 'Login admin gagal.');
+            return;
+          }
+
+          localStorage.setItem(
+            ADMIN_SESSION_KEY,
+            JSON.stringify({
+              managerId: response.data.managerId,
+              managerName: response.data.managerName,
+              email: response.data.email,
+              role: response.data.role,
+              loginAt: new Date().toISOString()
+            })
+          );
+
+          window.location.href = ADMIN_PAGE_URL;
+
+        } catch (error) {
+          setAdminLoading(false);
+          setAdminError(error?.message || 'Server error saat login admin.');
+        }
+      }
+
+      function getCurrentLocation() {
+        return new Promise((resolve, reject) => {
+          if (!navigator.geolocation) {
+            reject(new Error('Browser kamu tidak mendukung GPS.'));
+            return;
+          }
+
+          navigator.geolocation.getCurrentPosition(
+            position => {
+              resolve({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy
+              });
+            },
+            error => {
+              let message = 'Gagal mengambil lokasi GPS.';
+
+              if (error.code === error.PERMISSION_DENIED) {
+                message = 'Izin lokasi ditolak. Aktifkan GPS dan izinkan akses lokasi.';
+              }
+
+              if (error.code === error.POSITION_UNAVAILABLE) {
+                message = 'Lokasi tidak tersedia. Pastikan GPS aktif.';
+              }
+
+              if (error.code === error.TIMEOUT) {
+                message = 'Pengambilan lokasi terlalu lama. Coba ulangi.';
+              }
+
+              reject(new Error(message));
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 15000,
+              maximumAge: 0
+            }
+          );
+        });
+      }
+
+      async function handleAttendance(type) {
+        clearMessage();
+
+        const cleanEmployeeId = employeeId.trim();
+
+        if (!cleanEmployeeId) {
+          showMessage(
+            'error',
+            'Employee ID kosong',
+            'Masukkan Employee ID terlebih dahulu.'
+          );
+          return;
+        }
+
+        setLoadingType(type);
+
+        try {
+          const location = await getCurrentLocation();
+
+          const payload = {
+            employeeId: cleanEmployeeId,
+            latitude: location.latitude,
+            longitude: location.longitude,
+            accuracy: location.accuracy
+          };
+
+          const action = type === 'checkIn' ? 'checkIn' : 'checkOut';
+          const response = await apiRequest(action, payload);
+
+          setLoadingType('');
+
+          if (!response || !response.success) {
+            showMessage(
+              'error',
+              'Gagal',
+              response?.message || 'Proses attendance gagal.',
+              response?.data || null
+            );
+            return;
+          }
+
+          if (rememberMe) {
+            localStorage.setItem(REMEMBER_KEY, 'true');
+            localStorage.setItem(STORAGE_KEY, cleanEmployeeId);
+          }
+
+          showMessage(
+            'success',
+            type === 'checkIn' ? 'Check In Berhasil' : 'Check Out Berhasil',
+            response.message,
+            response.data
+          );
+
+        } catch (err) {
+          setLoadingType('');
+          showMessage(
+            'error',
+            'GPS Bermasalah',
+            err.message || 'Tidak bisa mengambil lokasi.'
+          );
+        }
+      }
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        handleAttendance('checkIn');
+      }
+
+      function MessageBox() {
+        if (!message) return null;
+
+        const isSuccess = message.type === 'success';
+
+        return (
+          <div
+            className={
+              isSuccess
+                ? 'mt-6 rounded-2xl border border-primaryDim/40 bg-[#ecfdf5] p-4 animate-fade-in-up'
+                : 'mt-6 rounded-2xl border border-errorSoft bg-[#fff5f4] p-4 animate-fade-in-up'
+            }
+          >
+            <div className="flex gap-3">
+              <span
+                className={
+                  isSuccess
+                    ? 'material-symbols-outlined text-primary shrink-0'
+                    : 'material-symbols-outlined text-error shrink-0'
+                }
+                style={{ fontVariationSettings: "'FILL' 1" }}
+              >
+                {isSuccess ? 'check_circle' : 'error'}
+              </span>
+
+              <div className="min-w-0">
+                <h3
+                  className={
+                    isSuccess
+                      ? 'text-sm font-extrabold text-primary'
+                      : 'text-sm font-extrabold text-error'
+                  }
+                >
+                  {message.title}
+                </h3>
+
+                <p className="mt-1 text-sm leading-relaxed text-darkSoft">
+                  {message.text}
+                </p>
+
+                {message.data && (
+                  <div className="mt-3 grid gap-1 text-xs text-darkSoft">
+                    {message.data.employeeName && (
+                      <p>
+                        <span className="font-bold text-dark">Nama:</span> {message.data.employeeName}
+                      </p>
+                    )}
+
+                    {message.data.date && (
+                      <p>
+                        <span className="font-bold text-dark">Tanggal:</span> {message.data.date}
+                      </p>
+                    )}
+
+                    {message.data.checkInTime && (
+                      <p>
+                        <span className="font-bold text-dark">Check In:</span> {message.data.checkInTime}
+                      </p>
+                    )}
+
+                    {message.data.checkOutTime && (
+                      <p>
+                        <span className="font-bold text-dark">Check Out:</span> {message.data.checkOutTime}
+                      </p>
+                    )}
+
+                    {message.data.locationName && (
+                      <p>
+                        <span className="font-bold text-dark">Lokasi:</span> {message.data.locationName}
+                      </p>
+                    )}
+
+                    {message.data.distanceMeter !== undefined && message.data.distanceMeter !== null && (
+                      <p>
+                        <span className="font-bold text-dark">Jarak:</span> {message.data.distanceMeter} meter
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function ActionButton({ type, icon, label, className }) {
+        const isThisLoading = loadingType === type;
+
+        return (
+          <button
+            type={type === 'checkIn' ? 'submit' : 'button'}
+            onClick={type === 'checkOut' ? () => handleAttendance('checkOut') : undefined}
+            disabled={isLoading}
+            className={
+              'w-full rounded-xl py-3.5 sm:py-4 px-4 sm:px-5 font-extrabold text-base sm:text-xl transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 flex items-center justify-center gap-2 ' +
+              className
+            }
+          >
+            <span className={isThisLoading ? 'material-symbols-outlined spin-soft' : 'material-symbols-outlined'}>
+              {isThisLoading ? 'progress_activity' : icon}
+            </span>
+
+            <span>
+              {isThisLoading
+                ? type === 'checkIn'
+                  ? 'Processing Check In...'
+                  : 'Processing Check Out...'
+                : label}
+            </span>
+          </button>
+        );
+      }
+
+      return (
+        <>
+          <main className={showAdminLogin ? 'min-h-[100dvh] flex flex-col items-center justify-start sm:justify-center px-4 sm:px-6 py-6 sm:py-8 blur-sm scale-[0.99] transition-all duration-300' : 'min-h-[100dvh] flex flex-col items-center justify-start sm:justify-center px-4 sm:px-6 py-6 sm:py-8 transition-all duration-300'}>
+            <section className="w-full max-w-[420px] sm:max-w-[440px]">
+              <header className="text-center mb-7 sm:mb-10 animate-fade-in-up">
+                <button
+                  type="button"
+                  onClick={handleLogoClick}
+                  aria-label="Managerku.id logo"
+                  className="relative w-20 h-20 sm:w-24 sm:h-24 mb-4 sm:mb-6 mx-auto group block"
+                >
+                  <div className="absolute inset-0 bg-primary opacity-10 blur-xl rounded-full group-hover:opacity-20 transition-opacity"></div>
+
+                  <div className="relative z-10 w-full h-full rounded-[28px] bg-gradient-to-br from-[#064E3B] via-[#059669] to-[#8ffc67] shadow-card flex items-center justify-center overflow-hidden active:scale-95 transition">
+                    <div className="absolute inset-x-3 top-4 h-10 bg-white/10 rounded-full rotate-[-18deg]"></div>
+                    <span className="relative text-white text-3xl sm:text-4xl font-black tracking-tighter">
+                      MJ
+                    </span>
+                  </div>
+                </button>
+
+                <h1 className="text-[32px] leading-[38px] sm:text-[40px] sm:leading-[48px] font-black tracking-[-0.03em] text-primary">
+                  Managerku.id
+                </h1>
+
+                <p className="mt-2 text-[10px] sm:text-xs leading-4 font-bold text-darkSoft tracking-[0.16em] sm:tracking-[0.18em] uppercase">
+                  Employee Attendance Geofencing
+                </p>
+              </header>
+
+              <form
+                onSubmit={handleSubmit}
+                className="w-full bg-white rounded-card shadow-card p-5 sm:p-6 md:p-8 animate-fade-in-up stagger-1"
+              >
+                {!isApiConfigured() && (
+                  <div className="mb-5 rounded-xl border border-errorSoft bg-[#fff5f4] p-3 text-xs font-semibold text-error">
+                    GAS_API_URL belum diisi. Paste URL deployment Google Apps Script di constant GAS_API_URL.
+                  </div>
+                )}
+
+                <div className="space-y-2 animate-fade-in-up stagger-2">
+                  <label
+                    htmlFor="employee-id"
+                    className="block text-base sm:text-lg leading-6 font-bold text-dark"
+                  >
+                    Employee ID
+                  </label>
+
+                  <input
+                    id="employee-id"
+                    type="text"
+                    value={employeeId}
+                    onChange={e => setEmployeeId(e.target.value)}
+                    placeholder="Contoh: EMP-001"
+                    disabled={isLoading}
+                    autoComplete="off"
+                    className="w-full rounded-lg border border-outline bg-[#fbfffd] px-4 sm:px-5 py-3.5 sm:py-4 text-base font-semibold text-dark outline-none transition-all duration-200 focus:border-primary focus:ring-0 input-glow disabled:bg-surfaceLow disabled:text-darkSoft"
+                  />
+                </div>
+
+                <div className="mt-5 flex items-center gap-3 animate-fade-in-up stagger-3">
+                  <input
+                    id="remember-me"
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={e => setRememberMe(e.target.checked)}
+                    disabled={isLoading}
+                    className="w-5 h-5 rounded border-outline text-primary focus:ring-primary/20 cursor-pointer"
+                  />
+
+                  <label
+                    htmlFor="remember-me"
+                    className="text-sm leading-5 text-darkSoft cursor-pointer select-none"
+                  >
+                    Remember Me
+                  </label>
+                </div>
+
+                <div className="mt-6 space-y-3 animate-fade-in-up stagger-4">
+                  <ActionButton
+                    type="checkIn"
+                    icon="login"
+                    label="Check In"
+                    className="bg-gradient-to-r from-primary to-primaryDim text-white shadow-button hover:shadow-xl hover:scale-[1.02]"
+                  />
+
+                  <ActionButton
+                    type="checkOut"
+                    icon="logout"
+                    label="Check Out"
+                    className="bg-inverse text-white hover:bg-dark"
+                  />
+                </div>
+
+                <div className="mt-6 sm:mt-8 rounded-xl border border-outline/40 bg-surfaceLow p-3.5 sm:p-4 flex gap-3 animate-fade-in-up stagger-5">
+                  <span
+                    className="material-symbols-outlined text-primary shrink-0"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    info
+                  </span>
+
+                  <p className="text-xs leading-relaxed text-darkSoft">
+                    Pastikan GPS aktif sebelum melakukan check-in atau check-out.
+                    Sistem akan membaca lokasi kamu dan mencocokkannya dengan radius kantor.
+                  </p>
+                </div>
+
+                <MessageBox />
+              </form>
+
+              <footer className="mt-7 sm:mt-10 py-3 sm:py-4 flex flex-col items-center gap-2 animate-fade-in-up stagger-5">
+                <span className="text-xs font-semibold text-darkSoft opacity-60">
+                  Powered by Managerku.id
+                </span>
+              </footer>
+            </section>
+          </main>
+
+          {showAdminLogin && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-4 sm:px-6 py-6 sm:py-8 bg-[#06130f]/50 backdrop-blur-sm overflow-y-auto">
+              <div className="w-full max-w-[400px] sm:max-w-[420px] max-h-[90dvh] overflow-y-auto rounded-card bg-white shadow-card border border-white/70 p-5 sm:p-6 animate-fade-in-up">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-primaryDim flex items-center justify-center text-white shadow-button">
+                      <span className="material-symbols-outlined text-[22px] sm:text-2xl">admin_panel_settings</span>
+                    </div>
+
+                    <h2 className="mt-4 text-xl sm:text-2xl font-black tracking-[-0.02em] text-dark">
+                      Admin Login
+                    </h2>
+
+                    <p className="mt-1 text-sm text-darkSoft">
+                      Masuk menggunakan akun dari ManagerAccount.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={closeAdminLogin}
+                    disabled={adminLoading}
+                    className="w-10 h-10 rounded-full bg-surfaceLow text-darkSoft flex items-center justify-center hover:bg-surfaceHigh transition disabled:opacity-60"
+                  >
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+
+                <form onSubmit={handleAdminLogin} className="mt-5 sm:mt-6 space-y-4">
+                  <div>
+                    <label htmlFor="admin-email" className="block text-sm font-bold text-dark mb-2">
+                      Email
+                    </label>
+
+                    <input
+                      id="admin-email"
+                      type="email"
+                      value={adminEmail}
+                      onChange={e => setAdminEmail(e.target.value)}
+                      disabled={adminLoading}
+                      placeholder="admin@email.com"
+                      className="w-full rounded-xl border border-outline bg-[#fbfffd] px-4 py-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-0 input-glow disabled:bg-surfaceLow"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="admin-password" className="block text-sm font-bold text-dark mb-2">
+                      Password
+                    </label>
+
+                    <input
+                      id="admin-password"
+                      type="password"
+                      value={adminPassword}
+                      onChange={e => setAdminPassword(e.target.value)}
+                      disabled={adminLoading}
+                      placeholder="Masukkan password"
+                      className="w-full rounded-xl border border-outline bg-[#fbfffd] px-4 py-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-0 input-glow disabled:bg-surfaceLow"
+                    />
+                  </div>
+
+                  {adminError && (
+                    <div className="rounded-xl border border-errorSoft bg-[#fff5f4] p-3 text-sm text-error font-semibold">
+                      {adminError}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={adminLoading}
+                    className="w-full rounded-xl bg-gradient-to-r from-primary to-primaryDim py-3.5 sm:py-4 text-white font-black shadow-button flex items-center justify-center gap-2 transition hover:scale-[1.01] active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+                  >
+                    <span className={adminLoading ? 'material-symbols-outlined spin-soft' : 'material-symbols-outlined'}>
+                      {adminLoading ? 'progress_activity' : 'login'}
+                    </span>
+                    {adminLoading ? 'Checking Account...' : 'Login to Dashboard'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
